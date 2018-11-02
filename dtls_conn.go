@@ -11,22 +11,35 @@ type dtlsConnection struct {
 	peer *dtls.Peer
 }
 
-var listener *dtls.Listener = nil
+type dtlsPacketConnection struct {
+	*dtls.Listener
+}
+
+var listener *dtlsPacketConnection = nil
 var keystore *dtls.KeystoreInMemory
 
 func initListener() error {
 	if listener != nil {
 		return nil
 	}
-	listener, err := dtls.NewUdpListener(":6000", 5*time.Second)
+	var err error
+	listener, err = NewDtlsListener(":6000")
 	if err != nil {
-		log.Warnln("shit", err)
-		return err
+		log.Fatalln("shit", err)
 	}
-	listener.AddCipherSuite(dtls.CipherSuite_TLS_PSK_WITH_AES_128_CCM_8)
 	keystore = dtls.NewKeystoreInMemory()
 	dtls.SetKeyStores([]dtls.Keystore{keystore})
 	return nil
+}
+
+func NewDtlsListener(addr string) (*dtlsPacketConnection, error) {
+	listener, err := dtls.NewUdpListener(addr, 5*time.Second)
+	if err != nil {
+		log.Warnln("shit", err)
+		return nil, err
+	}
+	listener.AddCipherSuite(dtls.CipherSuite_TLS_PSK_WITH_AES_128_CCM_8)
+	return &dtlsPacketConnection{listener}, nil
 }
 
 func NewDtlsConnection(addr, identity string, psk []byte) (net.Conn, error) {
@@ -67,6 +80,14 @@ func (dc *dtlsConnection) Close() error {
 	return nil
 }
 
+func (dc *dtlsConnection) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	panic("implement me")
+}
+
+func (dc *dtlsConnection) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+	panic("implement me")
+}
+
 func (dc *dtlsConnection) LocalAddr() net.Addr {
 	panic("implement me")
 }
@@ -84,5 +105,39 @@ func (dc *dtlsConnection) SetReadDeadline(t time.Time) error {
 }
 
 func (dc *dtlsConnection) SetWriteDeadline(t time.Time) error {
+	panic("implement me")
+}
+
+func (dpc *dtlsPacketConnection) Close() error {
+	//TODO
+	return nil
+}
+
+func (dpc *dtlsPacketConnection) LocalAddr() net.Addr {
+	return nil
+}
+
+func (dpc *dtlsPacketConnection) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	bytes, peer := dpc.Listener.Read()
+	if err != nil {
+		return 0, nil, err
+	}
+	copy(p, bytes)
+	return len(bytes), &net.UDPAddr{Zone: peer.RemoteAddr()}, nil
+}
+
+func (dpc *dtlsPacketConnection) SetDeadline(t time.Time) error {
+	return nil
+}
+
+func (dpc *dtlsPacketConnection) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+func (dpc *dtlsPacketConnection) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
+func (dpc *dtlsPacketConnection) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	panic("implement me")
 }

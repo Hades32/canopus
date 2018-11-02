@@ -2,17 +2,12 @@ package canopus
 
 import (
 	"bytes"
-	"crypto/rand"
 	"log"
 	"net"
 	"strconv"
 	"strings"
 	"time"
 )
-
-var DTLS_SERVER_SESSIONS = make(map[int32]*DTLSServerSession)
-var NEXT_SESSION_ID int32 = 0
-var DTLS_CLIENT_CONNECTIONS = make(map[int32]*DTLSConnection)
 
 type ServerConfiguration struct {
 	EnableResourceDiscovery bool
@@ -289,36 +284,23 @@ func (s *DefaultCoapServer) addDiscoveryRoute() {
 }
 
 func (s *DefaultCoapServer) ListenAndServeDTLS(addr string) {
-	s.addDiscoveryRoute()
-
-	conn := s.createConn(addr)
-
-	ctx, err := NewServerDtlsContext()
+	dtlsConn, err := NewDtlsListener(addr)
 	if err != nil {
-		panic("Unable to create SSL Context:" + err.Error())
+		log.Fatalln("shit", err)
 	}
-
-	if conn == nil {
-		log.Fatal("An error occured starting up CoAPS Server")
-	} else {
-		secret := make([]byte, 32)
-		if n, err := rand.Read(secret); n != 32 || err != nil {
-			panic(err)
-		}
-
-		s.cookieSecret = secret
-		log.Println("Started CoAPS Server ", conn.LocalAddr())
-		go s.handleIncomingDTLSData(conn, ctx)
-		go s.events.Started(s)
-		go s.handleMessageIDPurge()
+	conn := &UDPServerConnection{
+		conn: dtlsConn,
 	}
+	s.listenAndServeConn(addr, conn)
 }
 
 func (s *DefaultCoapServer) ListenAndServe(addr string) {
-	s.addDiscoveryRoute()
-
 	conn := s.createConn(addr)
+	s.listenAndServeConn(addr, conn)
+}
 
+func (s *DefaultCoapServer) listenAndServeConn(addr string, conn ServerConnection) {
+	s.addDiscoveryRoute()
 	if conn == nil {
 		log.Fatal("An error occured starting up CoAP Server")
 	} else {
@@ -347,57 +329,6 @@ func (s *DefaultCoapServer) createConn(addr string) ServerConnection {
 	return &UDPServerConnection{
 		conn: conn,
 	}
-}
-
-func (s *DefaultCoapServer) handleIncomingDTLSData(conn ServerConnection, ctx *ServerDtlsContext) {
-	readBuf := make([]byte, MaxPacketSize)
-	go func() {
-		for {
-			select {
-			case <-s.stopChannel:
-				return
-
-			default:
-				// continue
-			}
-
-			len, addr, err := conn.ReadFrom(readBuf)
-			if err == nil {
-				msgBuf := make([]byte, len)
-				copy(msgBuf, readBuf[:len])
-				ssn := s.sessions[addr.String()]
-				if ssn == nil {
-					ssn = &DTLSServerSession{
-						UDPServerSession: UDPServerSession{
-							addr:   addr,
-							conn:   conn,
-							server: s,
-							buf:    []byte{},
-							rcvd:   make(chan []byte, 1),
-						},
-					}
-					err := newSslSession(ssn.(*DTLSServerSession), ctx, s.fnPskHandler)
-					if err != nil {
-						panic(err.Error())
-					}
-					s.sessions[addr.String()] = ssn
-					s.createdSession <- ssn
-				}
-
-				ssn.(*DTLSServerSession).rcvd <- msgBuf
-			} else {
-				logMsg("Error occured reading UDP", err)
-			}
-		}
-	}()
-
-	go func() {
-		for {
-			ssn := <-s.createdSession
-			go s.handleSession(ssn)
-		}
-	}()
-
 }
 
 func (s *DefaultCoapServer) handleIncomingData(conn ServerConnection) {
