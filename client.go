@@ -15,18 +15,14 @@ func Dial(address string) (conn Connection, err error) {
 	return
 }
 
-func DialDTLS(address, identity, psk string) (conn Connection, err error) {
-	udpConn, err := net.Dial("udp", address)
+func DialDTLS(address, identity, psk string) (Connection, error) {
+	conn, err := NewDtlsConnection(address, identity, []byte(psk))
 	if err != nil {
-		return
+		return nil, err
 	}
-
-	conn, err = NewDTLSConnection(udpConn, identity, psk)
-	if err != nil {
-		return
-	}
-
-	return
+	return &UDPConnection{
+		conn: conn,
+	}, err
 }
 
 func NewObserveMessage(r string, val interface{}, msg Message) ObserveMessage {
